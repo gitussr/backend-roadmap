@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Design for SaaS — MERN SaaS Roadmap</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <nav class="guide-topbar">
+    <div class="container guide-topbar-inner">
+      <a class="back-link" href="index.html">← Roadmap</a>
+      <span class="topbar-title">System Design for SaaS</span>
+      <a class="other-guide" href="database-design.html">Database Design →</a>
+    </div>
+  </nav>
+
+  <header class="guide-hero">
+    <div class="container">
+      <span class="hero-kicker">Deep-dive guide · Phase 4</span>
+      <h1>System Design for SaaS</h1>
+      <p class="hero-sub">
+        In <a href="database-design.html">Database Design</a> you designed <em>what the app
+        remembers</em>. This guide zooms out to the whole machine: every box a request passes
+        through, why each exists, and how the architecture grows as a SaaS grows. We'll keep
+        using <strong>TeamTasks</strong> as the running example — and almost every box here maps
+        to a section of your ProCodrr course.
+      </p>
+      <nav class="toc" aria-label="On this page">
+        <a href="#part1">1 · One request's journey</a>
+        <a href="#part2">2 · Building blocks</a>
+        <a href="#part3">3 · Reference architecture</a>
+        <a href="#part4">4 · How it evolves</a>
+        <a href="#part5">5 · Per-feature checklist</a>
+        <a href="#part6">6 · Common mistakes</a>
+        <a href="#part7">7 · Practice path</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container prose">
+
+    <!-- ================= PART 1 ================= -->
+    <section id="part1">
+      <h2>Part 1: The journey of one request</h2>
+      <p>A user in another city clicks "Add task" in TeamTasks. What actually happens?</p>
+
+<pre><code>Browser
+  │ 1. DNS lookup: app.teamtasks.com → an IP          (course Sec 9)
+  │ 2. TLS handshake, then HTTPS POST /api/tasks       (Sec 17, 20)
+  ▼
+NGINX (reverse proxy on your server)                   (Sec 20)
+  │ 3. Terminates SSL, forwards to Node on port 3000
+  ▼
+Express app                                            (Sec 11)
+  │ 4. Middleware chain: rate limit → auth → tenant scoping
+  │    (Sec 17, 14–15, and Step 8 of the database guide)
+  ▼
+MongoDB                                                (Sec 12–13)
+  │ 5. Insert the task document (with orgId — the tenant key!)
+  ▼
+Express again
+  │ 6. Maybe: invalidate a Redis cache entry           (Sec 16)
+  │ 7. Maybe: enqueue a job — "email the assignee"     (Phase 4)
+  ▼
+Browser gets 201 Created — total round trip: ~100–300 ms</code></pre>
+
+      <p>Two big ideas fall out of this trace:</p>
+      <ol>
+        <li><strong>Every box is a separate concern with a separate failure mode.</strong>
+        System design is deciding which boxes you need, where they run, and what happens when
+        each one is slow or down.</li>
+        <li><strong>The database is the only box that remembers.</strong> Everything else —
+        NGINX, Express, Redis-as-cache — can be wiped and restarted with no data loss. This is
+        why the database gets its own guide, and why "stateless app servers" (below) is the
+        single most important scaling idea.</li>
+      </ol>
+    </section>
+
+    <!-- ================= PART 2 ================= -->
+    <section id="part2">
+      <h2>Part 2: The building blocks</h2>
+      <p>Each block, what it does, and where your course covers it:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Block</th><th>Job</th><th>Course</th></tr></thead>
+          <tbody>
+            <tr><td><strong>DNS</strong></td><td>Turn <code>app.teamtasks.com</code> into an IP</td><td>Sec 9, Cloudflare in Sec 20</td></tr>
+            <tr><td><strong>CDN</strong></td><td>Serve static files (your React bundle, images) from a location near the user</td><td>Sec 18 (CloudFront)</td></tr>
+            <tr><td><strong>Reverse proxy / load balancer</strong> (NGINX)</td><td>SSL termination, routing, and later: spreading traffic across several app servers</td><td>Sec 20</td></tr>
+            <tr><td><strong>App server</strong> (Node/Express)</td><td>Your business logic. Should be <strong>stateless</strong> — no user data lives in its memory</td><td>Sec 11, 23</td></tr>
+            <tr><td><strong>Cache</strong> (Redis)</td><td>Remember expensive answers so the DB isn't asked twice</td><td>Sec 16</td></tr>
+            <tr><td><strong>Database</strong> (MongoDB)</td><td>The system of record — the only box whose loss is catastrophic</td><td>Sec 12–13</td></tr>
+            <tr><td><strong>Object storage</strong> (S3)</td><td>Big binary files: avatars, attachments. Never store files in the DB or on the app server's disk</td><td>Sec 18</td></tr>
+            <tr><td><strong>Queue + workers</strong> (BullMQ on Redis)</td><td>Work that shouldn't block a request: emails, exports, image resizing</td><td>Roadmap Phase 4</td></tr>
+            <tr><td><strong>Third-party services</strong></td><td>Stripe (payments), email provider, OAuth (Google)</td><td>Sec 19, 15</td></tr>
+            <tr><td><strong>Observability</strong></td><td>Watches all of the above so you find out about problems before users tweet about them</td><td>Sec 22, Phase 6</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The one rule that makes everything else possible: stateless app servers</h3>
+      <p>If Express keeps sessions in its own memory, then user Alice is "logged in" on server 1
+      but a stranger on server 2 — you can never run two servers. The fix, which your course
+      teaches without naming the principle:</p>
+      <ul>
+        <li>Sessions → Redis (Sec 16), not app memory</li>
+        <li>Uploaded files → S3 (Sec 18), not local disk</li>
+        <li>Anything that must survive a restart → MongoDB</li>
+      </ul>
+      <p>Once the app server holds nothing, you can run 1 or 10 of them behind NGINX, kill and
+      replace them freely. This is also what makes zero-downtime deploys (Sec 20) and Lambda
+      (Sec 21) possible — Lambda is just "statelessness taken to the extreme".</p>
+
+      <h3>Caching: the three places answers can be remembered</h3>
+      <ol>
+        <li><strong>Browser/CDN</strong> — static assets, cached by URL. Cheap, covered in Sec 18.</li>
+        <li><strong>Redis</strong> — expensive query results ("the task board for project X"),
+        cached with a TTL. The hard part is <strong>invalidation</strong>: when a task changes,
+        the cached board is now a lie. Pattern: on every write, delete the affected cache keys.
+        Start with <em>no</em> Redis caching and add it only where measurements show pain — a
+        wrong cache is worse than a slow query.</li>
+        <li><strong>The database's own memory</strong> — MongoDB keeps hot data and indexes in
+        RAM automatically. This is why proper indexes (database guide, Step 7) often make Redis
+        caching unnecessary at small scale.</li>
+      </ol>
+
+      <h3>Queues: the request/background split</h3>
+      <div class="callout">
+        Rule: <strong>a request handler should only do work the user is actively waiting
+        for.</strong>
+      </div>
+      <p>Sending an email takes 1–3 seconds and can fail — if you do it inside
+      <code>POST /api/tasks</code>, every task creation is slow and a mail-provider outage breaks
+      task creation entirely. Instead the handler enqueues a job (milliseconds) and a separate
+      <strong>worker process</strong> sends the email, with retries. This is the single most
+      common architecture upgrade a course project needs to become production-grade — it's
+      Phase 4 in the roadmap for a reason.</p>
+    </section>
+
+    <!-- ================= PART 3 ================= -->
+    <section id="part3">
+      <h2>Part 3: The reference architecture for a small SaaS</h2>
+      <p>This is what TeamTasks (or your course capstone, or your Phase 7 product) should look
+      like at launch:</p>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 920 400" class="arch-svg" role="img"
+             aria-label="Architecture diagram: browser talks to CDN for static files and to NGINX for the API; NGINX forwards to a stateless Express app which uses MongoDB, Redis and S3, and enqueues jobs to a worker process that writes to S3; Stripe sends webhooks to the app.">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+            </marker>
+          </defs>
+
+          <g class="arch-edges" stroke="#cbd5e1" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+            <path d="M 150 168 C 190 120, 200 90, 228 78"/>
+            <path d="M 152 190 L 226 190"/>
+            <path d="M 384 190 L 436 190"/>
+            <path d="M 592 172 C 630 140, 640 110, 676 92"/>
+            <path d="M 592 190 L 676 190"/>
+            <path d="M 592 208 C 630 240, 640 270, 676 288"/>
+            <path d="M 514 222 L 514 268" stroke-dasharray="5 4"/>
+            <path d="M 592 300 L 676 300"/>
+            <path d="M 150 300 C 250 300, 330 250, 436 208" stroke-dasharray="5 4"/>
+          </g>
+
+          <g class="arch-edge-labels" fill="#64748b" font-size="11">
+            <text x="160" y="112">static files</text>
+            <text x="166" y="180">/api/*</text>
+            <text x="522" y="250">enqueue</text>
+            <text x="238" y="262">webhooks</text>
+          </g>
+
+          <g class="arch-nodes" font-size="13" text-anchor="middle">
+            <g><rect x="22" y="164" width="128" height="52" rx="10"/><text x="86" y="186">Browser</text><text x="86" y="203" class="sub">React SPA</text></g>
+            <g><rect x="228" y="42" width="150" height="52" rx="10"/><text x="303" y="64">CDN</text><text x="303" y="81" class="sub">CloudFront + S3 · Sec 18</text></g>
+            <g><rect x="228" y="164" width="156" height="52" rx="10"/><text x="306" y="186">NGINX</text><text x="306" y="203" class="sub">SSL, proxy · Sec 20</text></g>
+            <g class="accent"><rect x="436" y="164" width="156" height="52" rx="10"/><text x="514" y="186">Express app</text><text x="514" y="203" class="sub">stateless · Sec 11</text></g>
+            <g><rect x="676" y="42" width="200" height="52" rx="10"/><text x="776" y="64">MongoDB Atlas</text><text x="776" y="81" class="sub">system of record · Sec 12–13</text></g>
+            <g><rect x="676" y="164" width="200" height="52" rx="10"/><text x="776" y="186">Redis</text><text x="776" y="203" class="sub">sessions · cache · queue · Sec 16</text></g>
+            <g><rect x="676" y="266" width="200" height="52" rx="10"/><text x="776" y="288">S3</text><text x="776" y="305" class="sub">file uploads · Sec 18</text></g>
+            <g><rect x="436" y="272" width="156" height="52" rx="10"/><text x="514" y="294">Worker</text><text x="514" y="311" class="sub">BullMQ · Phase 4</text></g>
+            <g><rect x="22" y="272" width="128" height="52" rx="10"/><text x="86" y="294">Stripe</text><text x="86" y="311" class="sub">billing · Sec 19</text></g>
+          </g>
+        </svg>
+        <p class="diagram-caption">Dashed lines are asynchronous: enqueued jobs and incoming webhooks.</p>
+      </div>
+
+      <p>Things to notice:</p>
+      <ul>
+        <li><strong>The worker is a separate process</strong> running the same codebase
+        (<code>node worker.js</code> next to <code>node server.js</code>) — not a separate
+        project. PM2 (Sec 20) runs both.</li>
+        <li><strong>Stripe webhooks arrive from outside.</strong> Billing state changes (payment
+        failed, subscription canceled) come <em>to</em> you — this is why webhook signature
+        verification (Sec 19) matters: that endpoint is publicly reachable.</li>
+        <li><strong>MongoDB Atlas rather than self-managed</strong> — backups, upgrades, and
+        monitoring are someone else's 3 a.m. problem (the course's Sec 12 Atlas-vs-self-managed
+        discussion, and roadmap Phase 6 agrees).</li>
+        <li><strong>This whole diagram fits on one $20–40/month of infrastructure.</strong>
+        System design for a young SaaS is mostly about <em>arranging</em> well-understood boxes,
+        not inventing exotic ones.</li>
+      </ul>
+    </section>
+
+    <!-- ================= PART 4 ================= -->
+    <section id="part4">
+      <h2>Part 4: How the architecture evolves (and when)</h2>
+      <p>Design for the stage you're at, plus roughly one step of headroom. Not more.</p>
+
+      <h3>Stage 0 — one box (0 → first users)</h3>
+      <p>Everything from Part 3 on a single EC2 instance / one Render or Railway service. NGINX,
+      Node, Redis, worker, all together; MongoDB on Atlas. This is exactly what Sec 20 teaches.
+      It's not a toy — it comfortably serves thousands of users.</p>
+
+      <h3>Stage 1 — split by role (traffic grows, deploys get scary)</h3>
+      <p>Move the worker to its own instance so a heavy job can't starve web requests. Use
+      managed Redis. Add a staging environment (roadmap Phase 6). Most SaaS products live
+      happily in this stage for years.</p>
+
+      <h3>Stage 2 — horizontal scaling (one app server isn't enough)</h3>
+      <p>Run N app servers behind the load balancer. This costs nothing architecturally
+      <em>if</em> you kept servers stateless — that's the payoff. New problem: WebSockets and
+      Socket.IO need Redis pub/sub (Sec 16) as a backplane so a message reaches users connected
+      to any server.</p>
+
+      <h3>Stage 3 — targeted surgery (real scale, measured bottlenecks)</h3>
+      <p>Read replicas, sharding, extracting one hot service. You are nowhere near this, and
+      that's the point: <strong>each stage transition should be triggered by a measured
+      bottleneck</strong> (observability, Sec 22 — this is what those dashboards are
+      <em>for</em>), never by imagination.</p>
+
+      <h3>The anti-pattern to internalize: premature microservices</h3>
+      <div class="callout">
+        Splitting TeamTasks into <code>auth-service</code>, <code>task-service</code>,
+        <code>billing-service</code> on day one buys you: network calls where function calls
+        were, distributed transactions where one DB transaction was, and 5 deploy pipelines
+        where one was. It delivers <strong>nothing</strong> until you have teams that need to
+        ship independently. A well-structured monolith (feature folders — roadmap Phase 3) with
+        a separate worker process is the correct architecture for approximately every
+        solo-founder SaaS. This mirrors mistake #8 in the database guide: designing for
+        imaginary scale.
+      </div>
+    </section>
+
+    <!-- ================= PART 5 ================= -->
+    <section id="part5">
+      <h2>Part 5: Cross-cutting concerns — a checklist per feature</h2>
+      <p>For any new feature ("file attachments on tasks"), walk the boxes:</p>
+      <ol>
+        <li><strong>Data</strong> — new entities/fields? Tenant key present? Indexes for the new
+        queries? (the database guide's whole process)</li>
+        <li><strong>Request path</strong> — new endpoints? Auth + role checks? Rate limits?
+        Input validation?</li>
+        <li><strong>Slow work</strong> — anything over ~500 ms or failure-prone → queue job
+        (virus-scan the upload, generate thumbnails)</li>
+        <li><strong>Storage</strong> — files to S3 via signed URLs (Sec 18), never through your
+        server if avoidable</li>
+        <li><strong>Caching</strong> — does this write invalidate anything cached?</li>
+        <li><strong>Real-time</strong> — should other viewers of the board see it appear live?
+        (Socket.IO — roadmap Phase 4)</li>
+        <li><strong>Billing</strong> — is it plan-gated? ("attachments on Pro only" —
+        entitlements, roadmap Phase 5)</li>
+        <li><strong>Observability</strong> — will you know if it breaks? (error tracking, a
+        metric, an alert)</li>
+      </ol>
+      <p>This checklist <em>is</em> system design, applied at feature scale. Architecture isn't
+      a diagram you draw once; it's this walk, done every time.</p>
+    </section>
+
+    <!-- ================= PART 6 ================= -->
+    <section id="part6">
+      <h2>Part 6: Common beginner mistakes</h2>
+      <ol>
+        <li><strong>State on the app server</strong> — in-memory sessions, files on local disk.
+        Breaks the moment you run a second instance or redeploy. (Part 2)</li>
+        <li><strong>Doing slow work in request handlers</strong> — emails, PDFs, video
+        processing inline. One slow dependency takes your whole API down with it. (Part 2,
+        queues)</li>
+        <li><strong>Caching before measuring</strong> — Redis-caching everything on day one,
+        then debugging stale-data bugs for a week. Indexes first, cache later. (Part 2)</li>
+        <li><strong>Microservices for an app with zero users.</strong> (Part 4)</li>
+        <li><strong>Trusting incoming webhooks</strong> — an unverified
+        <code>/stripe-webhook</code> endpoint means anyone can POST "this org paid." Verify
+        signatures. (Part 3, Sec 19)</li>
+        <li><strong>No worker process</strong> — then the first background need gets hacked in
+        with <code>setTimeout</code>, which dies on every deploy. (Part 3)</li>
+        <li><strong>Scaling the database before adding indexes</strong> — 95% of "we need to
+        scale" at small size is a missing index or an N+1 query. (database guide Step 7,
+        roadmap Phase 4)</li>
+        <li><strong>No staging environment</strong> — testing schema migrations for the first
+        time in production. (roadmap Phase 6)</li>
+      </ol>
+    </section>
+
+    <!-- ================= PART 7 ================= -->
+    <section id="part7">
+      <h2>Part 7: Practice path</h2>
+      <ol>
+        <li><strong>Trace your course's StorageApp</strong> — draw its architecture diagram as
+        it actually is (probably: browser → Express → MongoDB + local disk). Mark every place it
+        violates statelessness. Fix one: move uploads to S3 (Sec 18).</li>
+        <li><strong>Add a worker</strong> — pick any project, add BullMQ + a worker process that
+        sends a (console-logged) email on some event. Kill the worker mid-job and watch the
+        retry happen. This one exercise teaches half of Part 2.</li>
+        <li><strong>Draw TeamTasks at Stage 0 and Stage 2</strong> — from memory, then compare
+        with Part 3. Write down exactly what changed between the stages and why nothing about
+        the <em>code</em> had to.</li>
+        <li><strong>Load-test something</strong> — run autocannon or k6 (roadmap Phase 4)
+        against a course project. Find the first bottleneck. Is it CPU? A missing index? This
+        turns "scaling" from folklore into measurement.</li>
+        <li><strong>The capstone, deliberately</strong> — before building each capstone feature,
+        run the Part 5 checklist on paper first. That habit is the whole guide.</li>
+      </ol>
+      <p><strong>Tools:</strong> <a href="https://excalidraw.com">excalidraw.com</a> or mermaid
+      <code>flowchart</code> blocks for diagrams; autocannon/k6 for load testing; your Sec 22
+      Grafana dashboards to watch systems under load.</p>
+    </section>
+
+    <nav class="pager" aria-label="Guide navigation">
+      <a class="prev" href="database-design.html"><span class="dir">← Previous guide</span><span class="dest">Database Design for SaaS</span></a>
+      <a class="next" href="index.html"><span class="dir">Back to →</span><span class="dest">The Roadmap</span></a>
+    </nav>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>Source: <code>system-design.md</code> in this repo · part of the
+      <a href="index.html">MERN SaaS Roadmap</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>

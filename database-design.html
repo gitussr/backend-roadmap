@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Database Design for SaaS — MERN SaaS Roadmap</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <nav class="guide-topbar">
+    <div class="container guide-topbar-inner">
+      <a class="back-link" href="index.html">← Roadmap</a>
+      <span class="topbar-title">Database Design for SaaS</span>
+      <a class="other-guide" href="system-design.html">System Design →</a>
+    </div>
+  </nav>
+
+  <header class="guide-hero">
+    <div class="container">
+      <span class="hero-kicker">Deep-dive guide · Phase 4</span>
+      <h1>Database Design for SaaS</h1>
+      <p class="hero-sub">
+        From WordPress user to database designer: the planning and thinking that happens
+        <strong>before</strong> you write a single <code>CREATE TABLE</code> or Mongoose schema —
+        then the same design implemented in both MySQL and MongoDB.
+      </p>
+      <nav class="toc" aria-label="On this page">
+        <a href="#part1">1 · WordPress</a>
+        <a href="#part2">2 · The design process</a>
+        <a href="#part3">3 · In MySQL</a>
+        <a href="#part4">4 · In MongoDB</a>
+        <a href="#part5">5 · Choosing a database</a>
+        <a href="#part6">6 · Common mistakes</a>
+        <a href="#part7">7 · Practice path</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container prose">
+
+    <!-- ================= PART 1 ================= -->
+    <section id="part1">
+      <h2>Part 1: The database you already know (WordPress)</h2>
+      <p>You've been <em>using</em> a professionally designed database for years without knowing
+      it. Open phpMyAdmin on any WordPress site and you'll see tables like:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Table</th><th>What it stores</th><th>Design lesson hiding inside</th></tr></thead>
+          <tbody>
+            <tr><td><code>wp_users</code></td><td>One row per user</td><td>An <strong>entity</strong> table</td></tr>
+            <tr><td><code>wp_posts</code></td><td>Posts, pages, revisions, menu items — all in one table</td><td>One table reused for many types (a <code>post_type</code> column decides)</td></tr>
+            <tr><td><code>wp_postmeta</code></td><td>Key–value pairs attached to posts</td><td>The <strong>EAV pattern</strong> — infinitely flexible, painfully slow at scale</td></tr>
+            <tr><td><code>wp_terms</code>, <code>wp_term_relationships</code></td><td>Categories/tags and which posts have them</td><td>A <strong>many-to-many relationship</strong> done with a join table</td></tr>
+            <tr><td><code>wp_comments</code></td><td>Comments, each pointing to a post</td><td>A <strong>one-to-many relationship</strong> via <code>comment_post_ID</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Two takeaways:</p>
+      <ol>
+        <li><strong>Every column and table exists because someone asked: "What does this app need
+        to remember, and how do the pieces relate?"</strong> That question is 90% of database design.</li>
+        <li>WordPress chose extreme flexibility (<code>wp_postmeta</code> can store anything about
+        anything). The price: querying "all products under $50 in stock" requires joining postmeta
+        to itself multiple times — slow and ugly. <strong>Every design is a trade-off.</strong>
+        Your job as a designer is choosing trade-offs deliberately instead of inheriting them.</li>
+      </ol>
+    </section>
+
+    <!-- ================= PART 2 ================= -->
+    <section id="part2">
+      <h2>Part 2: The design process (works for MySQL AND MongoDB)</h2>
+      <p>Design is the same regardless of database. Only the final <em>implementation</em>
+      differs. Never start with tables or collections. Start here:</p>
+
+      <h3>Step 1 — Write down what the app must do (requirements)</h3>
+      <p>Plain sentences. For a SaaS example we'll use throughout — <strong>"TeamTasks", a
+      project management SaaS</strong> (think a tiny Trello/Asana):</p>
+      <ul>
+        <li>People sign up and create an <strong>organization</strong> (their company)</li>
+        <li>An organization has a <strong>subscription plan</strong> (free / pro)</li>
+        <li>Users can be <strong>invited</strong> to an organization with a role (admin / member)</li>
+        <li>Organizations create <strong>projects</strong></li>
+        <li>Projects contain <strong>tasks</strong></li>
+        <li>Tasks can be <strong>assigned</strong> to a user, have a status, due date, and <strong>comments</strong></li>
+        <li>Tasks can have <strong>labels</strong> (like "bug", "urgent") — reusable across the project</li>
+      </ul>
+
+      <h3>Step 2 — Find the entities (the nouns)</h3>
+      <p>Underline the nouns in your requirements. Nouns that the app must <em>remember</em>
+      become entities:</p>
+      <div class="callout"><strong>User, Organization, Subscription, Project, Task, Comment, Label</strong></div>
+      <p>Rule of thumb: if it has its own identity and lifespan (can be created, updated, deleted
+      independently), it's an entity. "Status" is not an entity — it's just an attribute of Task.
+      "Role" is not an entity here — it's an attribute of the membership between User and
+      Organization.</p>
+
+      <h3>Step 3 — Find the relationships (the verbs) and their cardinality</h3>
+      <p>Go back to the sentences. The verbs connecting nouns are relationships. For each, ask
+      two questions in both directions: <em>"One X relates to how many Y?"</em></p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Relationship</th><th>Question both ways</th><th>Cardinality</th></tr></thead>
+          <tbody>
+            <tr><td>Organization–Subscription</td><td>An org has one subscription; a subscription belongs to one org</td><td><strong>1 : 1</strong></td></tr>
+            <tr><td>Organization–Project</td><td>An org has many projects; a project belongs to one org</td><td><strong>1 : N</strong></td></tr>
+            <tr><td>Project–Task</td><td>A project has many tasks; a task belongs to one project</td><td><strong>1 : N</strong></td></tr>
+            <tr><td>Task–Comment</td><td>A task has many comments; a comment belongs to one task</td><td><strong>1 : N</strong></td></tr>
+            <tr><td>User–Organization</td><td>A user can join many orgs; an org has many users</td><td><strong>M : N</strong></td></tr>
+            <tr><td>Task–Label</td><td>A task has many labels; a label is on many tasks</td><td><strong>M : N</strong></td></tr>
+            <tr><td>User–Task (assignment)</td><td>A task has one assignee; a user has many assigned tasks</td><td><strong>1 : N</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>This table is the heart of your design. Get this right and the schema almost writes itself:</p>
+      <ul>
+        <li><strong>1:1</strong> → merge into one table/document, or separate with a shared key</li>
+        <li><strong>1:N</strong> → the "many" side stores the parent's ID (a foreign key / reference)</li>
+        <li><strong>M:N</strong> → in SQL: a <strong>join table</strong>; in MongoDB: an array of references (usually)</li>
+      </ul>
+
+      <h3>Step 4 — List each entity's attributes</h3>
+      <p>For each entity, list what you must remember about it, and mark what's required,
+      unique, or constrained:</p>
+
+<pre><code>User:         id, name, email (unique, required), passwordHash, createdAt
+Organization: id, name, slug (unique), createdAt
+Subscription: id, orgId, plan (free|pro), status, currentPeriodEnd, stripeCustomerId
+Membership:   userId, orgId, role (admin|member), joinedAt      ← the M:N join!
+Project:      id, orgId, name, description, createdBy, createdAt
+Task:         id, projectId, title, description, status (todo|doing|done),
+              assigneeId (nullable), dueDate (nullable), createdAt
+Comment:      id, taskId, authorId, body, createdAt
+Label:        id, projectId, name, color
+TaskLabel:    taskId, labelId                                   ← the other M:N join</code></pre>
+
+      <p>Notice <strong>Membership</strong> appeared out of nowhere: every M:N relationship in
+      SQL becomes its own table, and that table often grows attributes of its own
+      (<code>role</code>, <code>joinedAt</code>). This is one of the most useful patterns in all
+      of database design — WordPress's <code>wp_term_relationships</code> is exactly this.</p>
+
+      <h3>Step 5 — Draw it (ER diagram)</h3>
+      <p>Always sketch before you code. Boxes = entities, lines = relationships:</p>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 920 380" role="img"
+             aria-label="Entity-relationship diagram for TeamTasks: User joins Organization through Membership (many-to-many); Organization has one Subscription and many Projects; a Project has many Tasks and defines many Labels; a Task has many Comments and many Labels; a User is assignee of many Tasks and author of many Comments.">
+          <g class="erd-edges">
+            <line x1="180" y1="63" x2="280" y2="63"/>                          <!-- user - membership -->
+            <line x1="450" y1="63" x2="550" y2="63"/>                          <!-- membership - org -->
+            <line x1="720" y1="63" x2="770" y2="63"/>                          <!-- org - subscription -->
+            <line x1="635" y1="86" x2="635" y2="170"/>                         <!-- org - project -->
+            <line x1="550" y1="193" x2="450" y2="193"/>                        <!-- project - task -->
+            <line x1="720" y1="193" x2="770" y2="193"/>                        <!-- project - label -->
+            <line x1="365" y1="216" x2="365" y2="300"/>                        <!-- task - comment -->
+            <path d="M 450 210 C 580 262, 700 262, 818 218" stroke-dasharray="5 4"/> <!-- task - label M:N -->
+            <path d="M 118 86 C 118 145, 190 168, 280 184"/>                   <!-- user - task (assignee) -->
+            <path d="M 88 86 C 55 200, 120 300, 280 322"/>                     <!-- user - comment (author) -->
+          </g>
+
+          <g class="erd-labels">
+            <text x="212" y="57">1 : N</text>
+            <text x="482" y="57">N : 1</text>
+            <text x="726" y="57">1 : 1</text>
+            <text x="645" y="132">1 : N</text>
+            <text x="484" y="187">N : 1</text>
+            <text x="726" y="187">1 : N</text>
+            <text x="375" y="262">1 : N</text>
+            <text x="592" y="248">M : N (labelIds)</text>
+            <text x="150" y="150">assignee 1 : N</text>
+            <text x="76" y="230">author 1 : N</text>
+          </g>
+
+          <g class="erd-nodes" text-anchor="middle">
+            <g><rect x="40"  y="40"  width="140" height="46" rx="10"/><text x="110" y="59">USER</text><text x="110" y="75" class="sub">email · passwordHash</text></g>
+            <g><rect x="280" y="40"  width="170" height="46" rx="10"/><text x="365" y="59">MEMBERSHIP</text><text x="365" y="75" class="sub">userId + orgId · role</text></g>
+            <g><rect x="550" y="40"  width="170" height="46" rx="10"/><text x="635" y="59">ORGANIZATION</text><text x="635" y="75" class="sub">name · slug</text></g>
+            <g><rect x="770" y="40"  width="130" height="46" rx="10"/><text x="835" y="59">SUBSCRIPTION</text><text x="835" y="75" class="sub">plan · status</text></g>
+            <g><rect x="550" y="170" width="170" height="46" rx="10"/><text x="635" y="189">PROJECT</text><text x="635" y="205" class="sub">orgId (tenant) · name</text></g>
+            <g><rect x="770" y="170" width="130" height="46" rx="10"/><text x="835" y="189">LABEL</text><text x="835" y="205" class="sub">name · color</text></g>
+            <g><rect x="280" y="170" width="170" height="46" rx="10"/><text x="365" y="189">TASK</text><text x="365" y="205" class="sub">projectId · orgId · status</text></g>
+            <g><rect x="280" y="300" width="170" height="46" rx="10"/><text x="365" y="319">COMMENT</text><text x="365" y="335" class="sub">taskId · authorId</text></g>
+          </g>
+        </svg>
+        <p class="diagram-caption">The TeamTasks ER diagram — solid lines are 1:N / 1:1, the dashed line is the Task↔Label many-to-many.</p>
+      </div>
+
+      <p>Tools like <a href="https://dbdiagram.io">dbdiagram.io</a>, drawio, or mermaid
+      <code>erDiagram</code> blocks in markdown all work — what matters is sketching at all.</p>
+
+      <h3>Step 6 — Normalize (SQL brain), then decide what to denormalize</h3>
+      <p><strong>Normalization</strong> = removing duplication so every fact lives in exactly one
+      place. The three rules that matter in practice:</p>
+      <ul>
+        <li><strong>1NF</strong> — no lists inside a cell. Don't store <code>labels = "bug,urgent"</code>
+        in a column. (That's what join tables are for.)</li>
+        <li><strong>2NF/3NF</strong> — every column must depend on the whole key and nothing but
+        the key. Practical test: <em>if updating one fact requires updating many rows, it's in the
+        wrong place.</em> E.g., don't copy <code>organizationName</code> into every task row — when
+        the org renames, you'd have to update thousands of rows. Store <code>orgId</code> and join.</li>
+      </ul>
+      <p><strong>Why normalize?</strong> No update anomalies, no contradictory data.<br>
+      <strong>Why denormalize (sometimes)?</strong> Speed — a read that needs 6 joins can be slow.
+      The mature workflow: <strong>normalize first, denormalize only when a measured performance
+      problem appears</strong>, and document every denormalization because it creates an update
+      burden you now own.</p>
+
+      <h3>Step 7 — Choose keys, types, constraints, and indexes</h3>
+      <ul>
+        <li><strong>Primary key</strong>: use a surrogate (auto-increment <code>BIGINT</code> or
+        UUID in MySQL; <code>ObjectId</code> in MongoDB) rather than a natural key like email —
+        emails change.</li>
+        <li><strong>Foreign keys</strong> (SQL): declare them. They make bad data impossible
+        instead of merely unlikely.</li>
+        <li><strong>Constraints are free tests</strong>: <code>NOT NULL</code>, <code>UNIQUE</code>,
+        <code>ENUM</code>/<code>CHECK</code> catch bugs at the database layer even when app code
+        has a hole. (You saw this idea in MongoDB schema validation in your course, Section 12.)</li>
+        <li><strong>Indexes</strong>: create one for every column you'll filter or join on
+        (<code>tasks.projectId</code>, <code>memberships.orgId</code>, <code>users.email</code>).
+        Rule of thumb: every foreign key gets an index; every "WHERE" you'll run often gets an
+        index. Indexes cost write speed and storage, so don't index everything.</li>
+      </ul>
+
+      <h3>Step 8 — The SaaS-specific step: multi-tenancy</h3>
+      <p>The single most important question for SaaS: <strong>how do you keep customer A from
+      ever seeing customer B's data?</strong></p>
+      <div class="callout">
+        The standard answer for 99% of SaaS apps: <strong>shared database, tenant ID column</strong> —
+        every row/document that belongs to a customer carries the <code>orgId</code>, and
+        <em>every single query</em> filters by it. In our design, <code>Project</code> has
+        <code>orgId</code>; tasks reach the org through their project. Many teams still stamp
+        <code>orgId</code> directly on <code>Task</code> and <code>Comment</code> too — a
+        deliberate, safe denormalization that lets you query and secure everything by tenant
+        directly. Enforce it in one place (middleware / a base query helper), never by hoping
+        each developer remembers.
+      </div>
+    </section>
+
+    <!-- ================= PART 3 ================= -->
+    <section id="part3">
+      <h2>Part 3: The same design in MySQL</h2>
+      <p>Now — and only now — implementation. The thinking above translates mechanically:</p>
+
+<pre><code>CREATE TABLE users (
+  id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name          VARCHAR(120) NOT NULL,
+  email         VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE organizations (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(120) NOT NULL,
+  slug       VARCHAR(60)  NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE subscriptions (           -- 1:1 with organizations
+  id                 BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  org_id             BIGINT UNSIGNED NOT NULL UNIQUE,   -- UNIQUE makes it 1:1
+  plan               ENUM('free','pro') NOT NULL DEFAULT 'free',
+  status             ENUM('active','past_due','canceled') NOT NULL DEFAULT 'active',
+  current_period_end DATETIME NULL,
+  stripe_customer_id VARCHAR(64) NULL,
+  FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE memberships (             -- the User↔Org M:N join table
+  user_id   BIGINT UNSIGNED NOT NULL,
+  org_id    BIGINT UNSIGNED NOT NULL,
+  role      ENUM('admin','member') NOT NULL DEFAULT 'member',
+  joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, org_id),       -- composite key: one row per pair
+  FOREIGN KEY (user_id) REFERENCES users(id)         ON DELETE CASCADE,
+  FOREIGN KEY (org_id)  REFERENCES organizations(id) ON DELETE CASCADE,
+  INDEX idx_org (org_id)               -- "list all members of an org" is common
+);
+
+CREATE TABLE projects (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  org_id      BIGINT UNSIGNED NOT NULL,  -- the tenant key
+  name        VARCHAR(160) NOT NULL,
+  description TEXT NULL,
+  created_by  BIGINT UNSIGNED NOT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (org_id)     REFERENCES organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  INDEX idx_org (org_id)
+);
+
+CREATE TABLE tasks (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id  BIGINT UNSIGNED NOT NULL,
+  org_id      BIGINT UNSIGNED NOT NULL,  -- deliberate denormalization: tenant safety
+  title       VARCHAR(200) NOT NULL,
+  description TEXT NULL,
+  status      ENUM('todo','doing','done') NOT NULL DEFAULT 'todo',
+  assignee_id BIGINT UNSIGNED NULL,      -- nullable: tasks can be unassigned
+  due_date    DATE NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (project_id)  REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (org_id)      REFERENCES organizations(id),
+  FOREIGN KEY (assignee_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_project_status (project_id, status),  -- board view: tasks by column
+  INDEX idx_assignee (assignee_id)                -- "my tasks" view
+);
+
+CREATE TABLE comments (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  task_id    BIGINT UNSIGNED NOT NULL,
+  author_id  BIGINT UNSIGNED NOT NULL,
+  body       TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (task_id)   REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (author_id) REFERENCES users(id),
+  INDEX idx_task (task_id)
+);
+
+CREATE TABLE labels (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT UNSIGNED NOT NULL,
+  name       VARCHAR(40) NOT NULL,
+  color      CHAR(7) NOT NULL DEFAULT '#888888',
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_label (project_id, name)   -- no duplicate label names per project
+);
+
+CREATE TABLE task_labels (                 -- the Task↔Label M:N join table
+  task_id  BIGINT UNSIGNED NOT NULL,
+  label_id BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (task_id, label_id),
+  FOREIGN KEY (task_id)  REFERENCES tasks(id)  ON DELETE CASCADE,
+  FOREIGN KEY (label_id) REFERENCES labels(id) ON DELETE CASCADE
+);</code></pre>
+
+      <p>Things to study in this schema:</p>
+      <ul>
+        <li><code>ON DELETE CASCADE</code> — delete an org and everything under it vanishes
+        consistently. <code>ON DELETE SET NULL</code> on assignee — deleting a user shouldn't
+        delete their tasks.</li>
+        <li>The composite index <code>(project_id, status)</code> serves the most common query:
+        "show the board for project X" — this is designing indexes <em>from queries</em>, not
+        guessing.</li>
+        <li>Compare with WordPress: <code>task_labels</code> ≈ <code>wp_term_relationships</code>;
+        the difference is we have real typed columns instead of everything-is-postmeta.</li>
+      </ul>
+    </section>
+
+    <!-- ================= PART 4 ================= -->
+    <section id="part4">
+      <h2>Part 4: The same design in MongoDB — different questions</h2>
+      <p>MongoDB design starts from a different place. Instead of "what are the entities?" (you
+      already did that — it's still required), the driving question is:</p>
+      <div class="callout"><strong>"What does the application read and write together, most often?"</strong></div>
+      <p>Because MongoDB lets you <strong>embed</strong> related data inside a document, every
+      relationship now has a second option:</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Decision</th><th>Embed when…</th><th>Reference when…</th></tr></thead>
+          <tbody>
+            <tr><td>Comment inside Task?</td><td>Data is always read <em>with</em> the parent, is small and bounded</td><td>Data is read on its own, grows unboundedly, or is shared</td></tr>
+            <tr><td>Label inside Task?</td><td>—</td><td>Shared across tasks → reference (embedding would duplicate)</td></tr>
+            <tr><td>Task inside Project?</td><td>—</td><td>Unbounded growth → <strong>never</strong> embed unbounded arrays</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Rules of thumb (from your course's Section 12 "Embedded vs Referenced"):</p>
+      <ol>
+        <li><strong>Embed what you read together. Reference what you share or what grows without limit.</strong></li>
+        <li>MongoDB has a 16 MB document cap — an embedded array that grows forever is a design bug.</li>
+        <li>There are no joins enforced by the DB and no foreign key constraints — <strong>your
+        app code (Mongoose) is now responsible for integrity</strong> that MySQL gave you for
+        free. This is the real trade-off of MongoDB, not "SQL vs NoSQL syntax."</li>
+      </ol>
+
+      <h3>The TeamTasks schema in Mongoose</h3>
+
+<pre><code>// users — same as SQL, entities with independent identity stay separate
+const userSchema = new Schema({
+  name:         { type: String, required: true },
+  email:        { type: String, required: true, unique: true, lowercase: true },
+  passwordHash: { type: String, required: true },
+}, { timestamps: true });
+
+// organizations — subscription is 1:1 and always read with the org → EMBED it
+const organizationSchema = new Schema({
+  name: { type: String, required: true },
+  slug: { type: String, required: true, unique: true },
+  subscription: {
+    plan:             { type: String, enum: ['free', 'pro'], default: 'free' },
+    status:           { type: String, enum: ['active', 'past_due', 'canceled'], default: 'active' },
+    currentPeriodEnd: Date,
+    stripeCustomerId: String,
+  },
+}, { timestamps: true });
+
+// memberships — M:N with attributes (role) → its own collection, like the SQL join table
+const membershipSchema = new Schema({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  orgId:  { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  role:   { type: String, enum: ['admin', 'member'], default: 'member' },
+}, { timestamps: true });
+membershipSchema.index({ userId: 1, orgId: 1 }, { unique: true }); // one row per pair
+membershipSchema.index({ orgId: 1 });                              // list org members
+
+// projects — labels are small, bounded, project-owned → EMBED them here
+const projectSchema = new Schema({
+  orgId:       { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
+  name:        { type: String, required: true },
+  description: String,
+  createdBy:   { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  labels: [{                       // subdocuments get their own _id automatically
+    name:  { type: String, required: true },
+    color: { type: String, default: '#888888' },
+  }],
+}, { timestamps: true });
+projectSchema.index({ orgId: 1 });
+
+// tasks — unbounded per project → own collection. Label refs point at the
+// embedded subdocument _ids inside project.labels.
+const taskSchema = new Schema({
+  projectId:  { type: Schema.Types.ObjectId, ref: 'Project', required: true },
+  orgId:      { type: Schema.Types.ObjectId, ref: 'Organization', required: true }, // tenant key
+  title:      { type: String, required: true },
+  description: String,
+  status:     { type: String, enum: ['todo', 'doing', 'done'], default: 'todo' },
+  assigneeId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  dueDate:    Date,
+  labelIds:   [Schema.Types.ObjectId],   // M:N as an array of refs — no join table!
+}, { timestamps: true });
+taskSchema.index({ projectId: 1, status: 1 });  // board view
+taskSchema.index({ assigneeId: 1 });            // "my tasks"
+taskSchema.index({ orgId: 1 });                 // tenant-wide queries
+
+// comments — could embed in task (read together!), but unbounded → own collection.
+// If you can cap them ("show latest 20, load more"), embedding the latest few and
+// referencing the rest is a known hybrid pattern. Start simple: reference.
+const commentSchema = new Schema({
+  taskId:   { type: Schema.Types.ObjectId, ref: 'Task', required: true },
+  authorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  body:     { type: String, required: true },
+}, { timestamps: true });
+commentSchema.index({ taskId: 1, createdAt: -1 });</code></pre>
+
+      <h3>What changed between MySQL and MongoDB — and what didn't</h3>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>MySQL</th><th>MongoDB</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Entities &amp; cardinality analysis (Steps 1–5)</strong></td><td>identical</td><td><strong>identical</strong></td></tr>
+            <tr><td>Subscription (1:1)</td><td>separate table, <code>UNIQUE</code> FK</td><td>embedded in org document</td></tr>
+            <tr><td>Labels</td><td>own table + join table</td><td>embedded in project + array of refs on task</td></tr>
+            <tr><td>M:N with attributes (membership)</td><td>join table</td><td>separate collection (same idea!)</td></tr>
+            <tr><td>Integrity</td><td>DB-enforced (FKs, ENUM, CASCADE)</td><td>app-enforced (Mongoose + discipline)</td></tr>
+            <tr><td>"Delete an org"</td><td>one <code>DELETE</code>, cascades handle the rest</td><td>you write the cascade yourself (or use transactions)</td></tr>
+            <tr><td>Reading a task board</td><td><code>JOIN</code>s</td><td>one query on tasks + <code>populate()</code> where needed</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p><strong>The planning work is 100% shared.</strong> Only Steps 6–7 diverge: SQL
+      normalizes by default and joins at read time; MongoDB pre-joins at write time (embedding)
+      where access patterns justify it.</p>
+    </section>
+
+    <!-- ================= PART 5 ================= -->
+    <section id="part5">
+      <h2>Part 5: Choosing between MySQL and MongoDB for a SaaS</h2>
+      <p>Honest guidance, not tribalism:</p>
+      <ul>
+        <li><strong>Choose MySQL/Postgres when</strong>: data is highly relational (SaaS almost
+        always is — orgs, users, plans, invoices), you want integrity enforced by the database,
+        you'll need ad-hoc reporting ("revenue by plan by month"), or a team will grow around it.
+        Most successful SaaS products run on relational databases.</li>
+        <li><strong>Choose MongoDB when</strong>: document shapes genuinely vary (CMS content,
+        event payloads, catalogs with wildly different attributes), your access patterns are
+        known and document-shaped, or your stack/team is deeply invested in it (MERN).</li>
+        <li><strong>Either works fine for TeamTasks.</strong> At small scale the DB choice
+        matters far less than the <em>design</em> — a well-designed MongoDB schema beats a sloppy
+        MySQL one and vice versa.</li>
+        <li>Whichever you pick, learn the other's mental model anyway. SQL thinking
+        (normalization, joins) makes your MongoDB designs better, and document thinking (access
+        patterns) makes your SQL indexes better.</li>
+      </ul>
+    </section>
+
+    <!-- ================= PART 6 ================= -->
+    <section id="part6">
+      <h2>Part 6: Common beginner mistakes</h2>
+      <p>Each maps to a step above:</p>
+      <ol>
+        <li><strong>Starting from screens instead of data</strong> — designing a "dashboard
+        table" instead of entities. Screens change monthly; entities are stable for years.
+        (Step 2)</li>
+        <li><strong>Storing lists in a field</strong> — <code>"bug,urgent"</code> in a column,
+        or in MongoDB, embedding an unbounded array. (Step 6, Part 4)</li>
+        <li><strong>Missing join tables</strong> — trying to model M:N with a column on one
+        side. (Step 3)</li>
+        <li><strong>Natural primary keys</strong> — using email/username as the key; they
+        change. (Step 7)</li>
+        <li><strong>No indexes on foreign keys / filter columns</strong> — works fine with 100
+        rows, dies at 100,000. (Step 7)</li>
+        <li><strong>Copying data without owning the update path</strong> — denormalizing
+        <code>userName</code> into comments, then user renames and old comments show stale names
+        <em>(sometimes that's even desired — decide consciously!)</em>. (Step 6)</li>
+        <li><strong>Forgetting the tenant filter</strong> — the classic SaaS data-leak bug.
+        Centralize it. (Step 8)</li>
+        <li><strong>Designing for imaginary scale</strong> — sharding plans for an app with 0
+        users. Design cleanly, index sensibly, ship, measure.</li>
+      </ol>
+    </section>
+
+    <!-- ================= PART 7 ================= -->
+    <section id="part7">
+      <h2>Part 7: Practice path</h2>
+      <p>Do these in order; each takes an evening or two. For every one: requirements →
+      entities → cardinality table → ER diagram → <strong>both</strong> MySQL DDL and Mongoose
+      schemas.</p>
+      <ol>
+        <li><strong>Blog with categories and comments</strong> — redesign WordPress's core
+        yourself, then compare your answer to the real <code>wp_*</code> tables. Where did you
+        do better? Where did they, and why?</li>
+        <li><strong>URL shortener with click analytics</strong> — forces you to think about a
+        high-write table (clicks) and aggregation.</li>
+        <li><strong>The course's StorageApp</strong> — you're building it anyway;
+        reverse-engineer its ER diagram from the code and critique it.</li>
+        <li><strong>E-commerce store</strong> — products with variants (size/color), carts,
+        orders, order line items. Line items teach "snapshot" design: an order must record the
+        price <em>at purchase time</em>, a deliberate denormalization.</li>
+        <li><strong>TeamTasks from this guide</strong> — build it for real as your Phase 7 SaaS.
+        Add: activity feed, file attachments, and a "move task between projects" feature — each
+        will stress-test the design.</li>
+      </ol>
+      <p><strong>Tools:</strong> <a href="https://dbdiagram.io">dbdiagram.io</a> (ER diagrams
+      from text), MySQL Workbench (visual schema design), MongoDB Compass (inspect real
+      documents), and mermaid <code>erDiagram</code> blocks in markdown (versionable diagrams).</p>
+    </section>
+
+    <nav class="pager" aria-label="Guide navigation">
+      <a class="prev" href="index.html"><span class="dir">← Back</span><span class="dest">The Roadmap</span></a>
+      <a class="next" href="system-design.html"><span class="dir">Next guide →</span><span class="dest">System Design for SaaS</span></a>
+    </nav>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>Source: <code>database-design.md</code> in this repo · part of the
+      <a href="index.html">MERN SaaS Roadmap</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MERN SaaS Roadmap — from course to shipped product</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ========== HERO ========== -->
+  <header class="hero">
+    <div class="container">
+      <p class="hero-kicker">Backend course → production SaaS</p>
+      <h1>The Full-Stack MERN SaaS Roadmap</h1>
+      <p class="hero-sub">
+        Everything between the ProCodrr <strong>Backend with Node.js</strong> course and a
+        shipped, monitored, paying SaaS product — in the order to learn it.
+        Check topics off as you go; progress is saved in your browser.
+      </p>
+
+      <div class="hero-progress" aria-label="Overall progress">
+        <div class="hero-progress-top">
+          <span id="overall-label">0 of 0 topics</span>
+          <span id="overall-pct">0%</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="overall-bar"></div></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ========== COURSE VERDICT ========== -->
+    <section class="section" id="verdict">
+      <div class="container">
+        <h2>Is the course alone enough?</h2>
+        <p class="section-sub">
+          No — but it puts you unusually far ahead on the backend. Here's what it covers
+          and where the gaps are. The gaps are what Phases 2–7 exist to close.
+        </p>
+        <div class="verdict-grid" id="verdict-grid"><!-- rendered by app.js --></div>
+      </div>
+    </section>
+
+    <!-- ========== SEQUENCING ========== -->
+    <section class="section" id="sequencing">
+      <div class="container">
+        <h2>How to sequence it</h2>
+        <p class="section-sub">
+          Realistic total: <strong>6–9 months</strong> of consistent part-time effort from
+          where you are to a shipped, production-grade SaaS.
+        </p>
+        <div class="seq-strip">
+          <div class="seq-card">
+            <span class="seq-when">Now → course end</span>
+            <p>Finish <strong>Phase 1</strong>. Once you hit the Express sections, start
+            <strong>Phase 2</strong> (React) in parallel — build small frontends for the
+            course's storage app.</p>
+          </div>
+          <div class="seq-arrow" aria-hidden="true">→</div>
+          <div class="seq-card">
+            <span class="seq-when">Alongside 2nd half</span>
+            <p>Adopt <strong>Phase 3</strong> habits immediately: Git discipline, write
+            tests for course projects, learn TypeScript incrementally.</p>
+          </div>
+          <div class="seq-arrow" aria-hidden="true">→</div>
+          <div class="seq-card">
+            <span class="seq-when">After the course · 4–6 wks</span>
+            <p><strong>Phase 4</strong>: queues, WebSockets, Docker deep-dive, SQL
+            awareness — the backend topics the course skips.</p>
+          </div>
+          <div class="seq-arrow" aria-hidden="true">→</div>
+          <div class="seq-card">
+            <span class="seq-when">Then · 2–3 months</span>
+            <p><strong>Phases 5–6</strong> while building your <strong>Phase 7</strong>
+            product — the SaaS layer only makes sense with a concrete product.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ROADMAP TIMELINE ========== -->
+    <section class="section" id="roadmap">
+      <div class="container">
+        <div class="roadmap-head">
+          <div>
+            <h2>The roadmap</h2>
+            <p class="section-sub">Seven phases. Click a phase to expand it; click a topic to mark it done.</p>
+          </div>
+          <div class="search-wrap">
+            <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <input type="search" id="search" placeholder="Filter topics… (e.g. stripe, docker, testing)" aria-label="Filter topics">
+          </div>
+        </div>
+
+        <div class="timeline" id="timeline"><!-- rendered by app.js --></div>
+        <p class="no-results hidden" id="no-results">No topics match “<span id="no-results-q"></span>”.</p>
+      </div>
+    </section>
+
+    <!-- ========== ARCHITECTURE ========== -->
+    <section class="section" id="architecture">
+      <div class="container">
+        <h2>What you're building toward</h2>
+        <p class="section-sub">
+          The reference architecture for a launch-stage SaaS — every box maps to a course
+          section or a phase above. Full walkthrough in
+          <a href="../system-design.md">system-design.md</a>.
+        </p>
+
+        <div class="arch-wrap">
+          <svg viewBox="0 0 920 400" class="arch-svg" role="img"
+               aria-label="Architecture diagram: browser talks to CDN for static files and to NGINX for the API; NGINX forwards to a stateless Express app which uses MongoDB, Redis and S3, and enqueues jobs to a worker process that writes to S3; Stripe sends webhooks to the app.">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+              </marker>
+            </defs>
+
+            <!-- edges -->
+            <g class="arch-edges" stroke="#cbd5e1" stroke-width="1.5" fill="none" marker-end="url(#arrow)">
+              <path d="M 150 168 C 190 120, 200 90, 228 78"/>                 <!-- browser -> cdn -->
+              <path d="M 152 190 L 226 190"/>                                  <!-- browser -> nginx -->
+              <path d="M 384 190 L 436 190"/>                                  <!-- nginx -> express -->
+              <path d="M 592 172 C 630 140, 640 110, 676 92"/>                 <!-- express -> mongo -->
+              <path d="M 592 190 L 676 190"/>                                  <!-- express -> redis -->
+              <path d="M 592 208 C 630 240, 640 270, 676 288"/>                <!-- express -> s3 -->
+              <path d="M 514 222 L 514 268" stroke-dasharray="5 4"/>           <!-- express -> worker -->
+              <path d="M 592 300 L 676 300" transform="translate(0,0)"/>       <!-- worker -> email (drawn below) -->
+              <path d="M 150 300 C 250 300, 330 250, 436 208" stroke-dasharray="5 4"/> <!-- stripe -> express -->
+            </g>
+
+            <!-- edge labels -->
+            <g class="arch-edge-labels" fill="#64748b" font-size="11">
+              <text x="160" y="112">static files</text>
+              <text x="166" y="180">/api/*</text>
+              <text x="522" y="250">enqueue</text>
+              <text x="238" y="262">webhooks</text>
+            </g>
+
+            <!-- nodes -->
+            <g class="arch-nodes" font-size="13" text-anchor="middle">
+              <g><rect x="22" y="164" width="128" height="52" rx="10"/><text x="86" y="186">Browser</text><text x="86" y="203" class="sub">React SPA</text></g>
+              <g><rect x="228" y="42" width="150" height="52" rx="10"/><text x="303" y="64">CDN</text><text x="303" y="81" class="sub">CloudFront + S3 · Sec 18</text></g>
+              <g><rect x="228" y="164" width="156" height="52" rx="10"/><text x="306" y="186">NGINX</text><text x="306" y="203" class="sub">SSL, proxy · Sec 20</text></g>
+              <g class="accent"><rect x="436" y="164" width="156" height="52" rx="10"/><text x="514" y="186">Express app</text><text x="514" y="203" class="sub">stateless · Sec 11</text></g>
+              <g><rect x="676" y="42" width="200" height="52" rx="10"/><text x="776" y="64">MongoDB Atlas</text><text x="776" y="81" class="sub">system of record · Sec 12–13</text></g>
+              <g><rect x="676" y="164" width="200" height="52" rx="10"/><text x="776" y="186">Redis</text><text x="776" y="203" class="sub">sessions · cache · queue · Sec 16</text></g>
+              <g><rect x="676" y="266" width="200" height="52" rx="10"/><text x="776" y="288">S3</text><text x="776" y="305" class="sub">file uploads · Sec 18</text></g>
+              <g><rect x="436" y="272" width="156" height="52" rx="10"/><text x="514" y="294">Worker</text><text x="514" y="311" class="sub">BullMQ · Phase 4</text></g>
+              <g><rect x="22" y="272" width="128" height="52" rx="10"/><text x="86" y="294">Stripe</text><text x="86" y="311" class="sub">billing · Sec 19</text></g>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== DEEP DIVES ========== -->
+    <section class="section" id="guides">
+      <div class="container">
+        <h2>Deep-dive guides in this repo</h2>
+        <div class="guides-grid">
+          <a class="guide-card" href="../database-design.md">
+            <span class="guide-tag">Guide</span>
+            <h3>Database Design for SaaS</h3>
+            <p>From WordPress user to database designer: the 8-step design process, then the
+            same schema implemented in both MySQL and Mongoose. Do this one first.</p>
+            <span class="guide-link">database-design.md →</span>
+          </a>
+          <a class="guide-card" href="../system-design.md">
+            <span class="guide-tag">Guide</span>
+            <h3>System Design for SaaS</h3>
+            <p>The full architecture around the database: request path, statelessness,
+            caching, queues, and how the system evolves stage by stage.</p>
+            <span class="guide-link">system-design.md →</span>
+          </a>
+          <a class="guide-card" href="../syllabus.md">
+            <span class="guide-tag">Source</span>
+            <h3>The full syllabus</h3>
+            <p>The markdown source of this roadmap — same phases and checkboxes, plus extra
+            notes and context on every topic.</p>
+            <span class="guide-link">syllabus.md →</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>Built from <code>syllabus.md</code>, <code>database-design.md</code> and
+      <code>system-design.md</code> · progress is stored only in your browser
+      · <button id="reset-progress" class="link-btn">reset progress</button></p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
